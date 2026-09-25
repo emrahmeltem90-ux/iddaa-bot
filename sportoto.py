@@ -18,7 +18,7 @@ def send_telegram(title, message):
     try:
         with urllib.request.urlopen(req, timeout=12) as response:
             if response.status == 200:
-                print("✅ Telegram Spor Toto bildirimi gönderildi!")
+                print("✅ Telegram Spor Toto 3'lü Sistem bildirimi gönderildi!")
     except Exception as e:
         print(f"❌ Hata: {e}")
 
@@ -42,6 +42,50 @@ def estimate_xg_from_fixture(home_team, away_team):
     away_xg = 0.9 + ((seed >> 2) % 110) / 100.0
     return home_xg, away_xg
 
+def get_match_recommendation(p1, px, p2):
+    max_p = max(p1, px, p2)
+    # 3'lü Kapatma: Hiçbir ihtimal %42'yi geçmiyorsa veya galibiyet olasılıkları başa başsa
+    if max_p < 42.0 or (abs(p1 - p2) < 5.0 and px > 28.0):
+        return "1-X-2 (Kapatma)"
+    elif p1 >= 50.0:
+        return "1 (Banko)"
+    elif p2 >= 50.0:
+        return "2 (Banko)"
+    elif p1 >= p2:
+        return "1-X (Çifte Şans)"
+    else:
+        return "X-2 (Çifte Şans)"
+
+def generate_reduced_columns(picks):
+    columns = [[] for _ in range(8)]
+    pattern = [
+        ["1", "1", "1", "1", "X", "X", "2", "2"],
+        ["1", "X", "2", "1", "X", "2", "1", "X"],
+        ["X", "2", "1", "2", "1", "X", "2", "1"]
+    ]
+    
+    for idx, pick in enumerate(picks[:15]):
+        if "Kapatma" in pick:
+            for c in range(8):
+                columns[c].append(pattern[idx % 3][c])
+        elif "1-X" in pick:
+            for c in range(8):
+                columns[c].append("1" if c % 2 == 0 else "X")
+        elif "X-2" in pick:
+            for c in range(8):
+                columns[c].append("X" if c % 2 == 0 else "2")
+        elif "1 (" in pick or pick == "1":
+            for c in range(8):
+                columns[c].append("1")
+        elif "2 (" in pick or pick == "2":
+            for c in range(8):
+                columns[c].append("2")
+        else:
+            for c in range(8):
+                columns[c].append("1")
+                
+    return columns
+
 def run_sportoto_analysis():
     today = datetime.now().strftime("%Y-%m-%d")
     url = f"https://v3.football.api-sports.io/fixtures?date={today}"
@@ -53,6 +97,7 @@ def run_sportoto_analysis():
             fixtures = res_data.get("response", [])
         
         matches_summary = []
+        picks = []
         count = 1
         for item in fixtures:
             if count > 15:
@@ -64,15 +109,8 @@ def run_sportoto_analysis():
 
             home_xg, away_xg = estimate_xg_from_fixture(home_team, away_team)
             p1, px, p2 = calculate_1x2_probabilities(home_xg, away_xg)
-
-            if p1 >= 50.0:
-                pick = "1"
-            elif p2 >= 50.0:
-                pick = "2"
-            elif p1 > p2:
-                pick = "1-X"
-            else:
-                pick = "X-2"
+            pick = get_match_recommendation(p1, px, p2)
+            picks.append(pick)
 
             matches_summary.append(
                 f"<b>{count}. {home_team} vs {away_team}</b> ({league_name})\n"
@@ -82,8 +120,15 @@ def run_sportoto_analysis():
             count += 1
 
         if matches_summary:
-            title = f"🏆 Spor Toto / 15 Maçlık Poisson Analizi ({today})"
-            body = "\n\n".join(matches_summary)
+            title = f"🏆 Spor Toto / 15 Maçlık Poisson & 3'lü Sistem Bülteni ({today})"
+            
+            red_cols = generate_reduced_columns(picks)
+            col_text = "<b>📌 8 Kolonluk İndirgenmiş Kupon Matrisi:</b>\n"
+            for i, col in enumerate(red_cols, 1):
+                col_str = "-".join(col)
+                col_text += f"<b>K{i}:</b> <code>{col_str}</code>\n"
+
+            body = "\n\n".join(matches_summary) + "\n\n" + col_text
             send_telegram(title, body)
             
     except Exception as e:
