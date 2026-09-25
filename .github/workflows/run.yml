@@ -1,4 +1,4 @@
-name: Gunluk Analiz
+name: Gunluk ve Spor Toto Analiz
 
 on:
   schedule:
@@ -14,3 +14,4 @@ jobs:
         with:
           python-version: '3.10'
       - run: python analiz.py
+      - run: python sportoto.py
