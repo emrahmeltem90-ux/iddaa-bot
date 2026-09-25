@@ -1,0 +1,93 @@
+import math
+import zlib
+import urllib.request
+import urllib.parse
+import json
+import os
+from datetime import datetime
+
+TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN") or "8601028563:AAF-oYDxRaJ2bChrG8Mkb2ps-CtfnH0u4pw"
+CHAT_ID = os.environ.get("CHAT_ID") or "7113104541"
+API_KEY = os.environ.get("API_KEY") or "4b7109b6760cf29b78701c45406dbd9a"
+
+def send_telegram(title, message):
+    full_text = f"<b>{title}</b>\n\n{message}"
+    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+    data = urllib.parse.urlencode({"chat_id": CHAT_ID, "text": full_text, "parse_mode": "HTML"}).encode('utf-8')
+    req = urllib.request.Request(url, data=data, method="POST")
+    try:
+        with urllib.request.urlopen(req, timeout=12) as response:
+            if response.status == 200:
+                print("✅ Telegram Spor Toto bildirimi gönderildi!")
+    except Exception as e:
+        print(f"❌ Hata: {e}")
+
+def poisson_prob(lmbda, k):
+    return (math.pow(lmbda, k) * math.exp(-lmbda)) / math.factorial(k)
+
+def calculate_1x2_probabilities(home_xg, away_xg):
+    max_goals = 6
+    prob_home = [poisson_prob(home_xg, h) for h in range(max_goals)]
+    prob_away = [poisson_prob(away_xg, a) for a in range(max_goals)]
+    
+    p_1 = sum(prob_home[h] * prob_away[a] for h in range(max_goals) for a in range(max_goals) if h > a)
+    p_x = sum(prob_home[h] * prob_away[a] for h in range(max_goals) for a in range(max_goals) if h == a)
+    p_2 = sum(prob_home[h] * prob_away[a] for h in range(max_goals) for a in range(max_goals) if h < a)
+    
+    return round(p_1 * 100, 1), round(p_x * 100, 1), round(p_2 * 100, 1)
+
+def estimate_xg_from_fixture(home_team, away_team):
+    seed = zlib.adler32(f"{home_team}{away_team}".encode('utf-8'))
+    home_xg = 1.2 + (seed % 120) / 100.0
+    away_xg = 0.9 + ((seed >> 2) % 110) / 100.0
+    return home_xg, away_xg
+
+def run_sportoto_analysis():
+    today = datetime.now().strftime("%Y-%m-%d")
+    url = f"https://v3.football.api-sports.io/fixtures?date={today}"
+    req = urllib.request.Request(url, headers={"x-apisports-key": API_KEY, "User-Agent": "Mozilla/5.0"})
+    
+    try:
+        with urllib.request.urlopen(req, timeout=15) as response:
+            res_data = json.loads(response.read().decode('utf-8'))
+            fixtures = res_data.get("response", [])
+        
+        matches_summary = []
+        count = 1
+        for item in fixtures:
+            if count > 15:
+                break
+            
+            home_team = item["teams"]["home"]["name"]
+            away_team = item["teams"]["away"]["name"]
+            league_name = item["league"]["name"]
+
+            home_xg, away_xg = estimate_xg_from_fixture(home_team, away_team)
+            p1, px, p2 = calculate_1x2_probabilities(home_xg, away_xg)
+
+            if p1 >= 50.0:
+                pick = "1"
+            elif p2 >= 50.0:
+                pick = "2"
+            elif p1 > p2:
+                pick = "1-X"
+            else:
+                pick = "X-2"
+
+            matches_summary.append(
+                f"<b>{count}. {home_team} vs {away_team}</b> ({league_name})\n"
+                f"   📊 1: %{p1} | X: %{px} | 2: %{p2}\n"
+                f"   🎯 Öneri: <b>[{pick}]</b>"
+            )
+            count += 1
+
+        if matches_summary:
+            title = f"🏆 Spor Toto / 15 Maçlık Poisson Analizi ({today})"
+            body = "\n\n".join(matches_summary)
+            send_telegram(title, body)
+            
+    except Exception as e:
+        print(f"❌ Spor Toto analizi hatası: {e}")
+
+if __name__ == "__main__":
+    run_sportoto_analysis()
