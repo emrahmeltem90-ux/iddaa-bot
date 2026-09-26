@@ -2,6 +2,7 @@ import os
 import math
 import datetime
 import json
+import time
 import urllib.request
 import urllib.parse
 
@@ -10,7 +11,7 @@ TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN", "")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
 API_KEY = "4b7109b6760cf29b78701c45406dbd9a"
 
-# Genişletilmiş Lig & Turnuva Listesi (Milli Maçlar + Kulüp Ligleri + Avrupa Kupaları)
+# Genişletilmiş Lig & Turnuva Listesi
 TARGET_LEAGUES = [5, 10, 32, 203, 204, 39, 140, 135, 78, 61, 88, 94, 2, 3, 848]
 
 def http_get(url, headers=None):
@@ -19,8 +20,10 @@ def http_get(url, headers=None):
         with urllib.request.urlopen(req, timeout=15) as response:
             if response.status == 200:
                 return json.loads(response.read().decode('utf-8'))
+    except urllib.error.HTTPError as e:
+        print(f"HTTP Hata ({e.code}): {url}")
     except Exception as e:
-        print(f"HTTP İstek Hatası ({url}): {e}")
+        print(f"İstek Hatası: {e}")
     return None
 
 def send_telegram(message):
@@ -66,21 +69,23 @@ def main():
     data = http_get(url, headers)
     
     if not data:
-        print("API'den veri çekilemedi.")
+        print("API'den maç verisi çekilemedi.")
         return
 
     fixtures = data.get("response", [])
+    target_fixtures = [f for f in fixtures if f.get("league", {}).get("id") in TARGET_LEAGUES]
+    
+    print(f"Bugün hedef liglerde toplam {len(target_fixtures)} maç bulundu.")
     signals_sent = 0
     
-    for item in fixtures:
-        league_id = item.get("league", {}).get("id")
-        if league_id not in TARGET_LEAGUES:
-            continue
-        
+    for item in target_fixtures:
         fixture_id = item.get("fixture", {}).get("id")
         home_team = item.get("teams", {}).get("home", {}).get("name", "Ev")
         away_team = item.get("teams", {}).get("away", {}).get("name", "Deplasman")
         league_name = item.get("league", {}).get("name", "Lig")
+        
+        # API 429 isteğini engellemek için her sorgu öncesi 2 saniye bekle
+        time.sleep(2)
         
         pred_url = f"https://v3.football.api-sports.io/predictions?fixture={fixture_id}"
         pred_data = http_get(pred_url, headers)
