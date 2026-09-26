@@ -9,9 +9,12 @@ TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 API_KEY = "4b7109b6760cf29b78701c45406dbd9a"
 
-# İddaa bültenindeki başlıca ligler (API-Football ID'leri)
-# 203: Süper Lig, 39: Premier League, 140: La Liga, 135: Serie A, 78: Bundesliga, 61: Ligue 1, 204: 1. Lig
-TARGET_LEAGUES = [203, 39, 140, 135, 78, 61, 204]
+# Genişletilmiş Lig & Turnuva Listesi (Milli Maçlar + Kulüp Ligleri + Avrupa Kupaları)
+# 5: UEFA Nations League, 10: Friendlies (Milli), 32: World Cup - Qualification Europe
+# 203: Süper Lig, 204: TFF 1. Lig
+# 39: Premier League, 140: La Liga, 135: Serie A, 78: Bundesliga, 61: Ligue 1, 88: Eredivisie, 94: Liga Portugal
+# 2: Champions League, 3: Europa League, 848: Conference League
+TARGET_LEAGUES = [5, 10, 32, 203, 204, 39, 140, 135, 78, 61, 88, 94, 2, 3, 848]
 
 def send_telegram(message):
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
@@ -38,7 +41,7 @@ def main():
     today = datetime.datetime.now().strftime("%Y-%m-%d")
     headers = {'x-apisports-key': API_KEY}
     
-    # Bugünün maçlarını çek
+    # Bugünün tüm maçlarını çek
     url = f"https://v3.football.api-sports.io/fixtures?date={today}"
     response = requests.get(url, headers=headers)
     
@@ -80,7 +83,7 @@ def main():
                 if over35 > 40 or (btts > 60 and over25 > 65):
                     msg = f"🚨 <b>CANLI İDDAA GOL SİNYALİ</b>\n\n"
                     msg += f"⚔️ <b>{home_team} vs {away_team}</b>\n"
-                    msg += f"🏆 <b>Lig:</b> {league_name}\n\n"
+                    msg += f"🏆 <b>Turnuva/Lig:</b> {league_name}\n\n"
                     msg += f"🎯 <b>Poisson Analiz Değerleri:</b>\n"
                     if over35 > 40:
                         msg += f"🔥 <b>3.5 ÜST SÜRPRİZ:</b> %{over35:.1f}\n"
@@ -93,7 +96,7 @@ def main():
                     send_telegram(msg)
                     signals_sent += 1
 
-    print(f"Bugünün canlı bülten analizi tamamlandı. Gönderilen Sinyal: {signals_sent}")
+    print(f"Bugünün bülten analizi tamamlandı. Gönderilen Sinyal: {signals_sent}")
 
 if __name__ == "__main__":
     main()
