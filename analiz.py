@@ -1,82 +1,106 @@
-import math
-import zlib
 import urllib.request
 import urllib.parse
 import json
-from datetime import datetime
+import os
+import math
 
-TELEGRAM_TOKEN = "8601028563:AAF-oYDxRaJ2bChrG8Mkb2ps-CtfnH0u4pw"
-CHAT_ID = "7113104541"
-API_KEY = "4b7109b6760cf29b78701c45406dbd9a"
+TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN") or "8601028563:AAF-oYDxRaJ2bChrG8Mkb2ps-CtfnH0u4pw"
+CHAT_ID = os.environ.get("CHAT_ID") or "7113104541"
 
-MIN_IY_05_PROB = 80.0
-MIN_MS_15_PROB = 82.0
+# Sadece İddaa Bülteninde Açılan Majör Ligler
+IDDAA_LIGLERI = [
+    203,  # Trendyol Süper Lig
+    204,  # TFF 1. Lig
+    39,   # Premier League
+    40,   # Championship
+    140,  # La Liga
+    135,  # Serie A
+    78,   # Bundesliga
+    61,   # Ligue 1
+    2,    # Şampiyonlar Ligi
+    3,    # Avrupa Ligi
+    848,  # Konferans Ligi
+    5,    # Uluslar Ligi / Milli Maçlar
+    88,   # Eredivisie
+    94,   # Primeira Liga
+]
 
-def send_telegram(title, message):
-    full_text = f"<b>{title}</b>\n\n{message}"
+def send_telegram(message):
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-    data = urllib.parse.urlencode({"chat_id": CHAT_ID, "text": full_text, "parse_mode": "HTML"}).encode('utf-8')
+    data = urllib.parse.urlencode({
+        "chat_id": CHAT_ID, 
+        "text": message, 
+        "parse_mode": "HTML"
+    }).encode('utf-8')
     req = urllib.request.Request(url, data=data, method="POST")
     try:
         with urllib.request.urlopen(req, timeout=12) as response:
-            if response.status == 200:
-                print("✅ Telegram bildirimi gönderildi!")
+            pass
     except Exception as e:
-        print(f"❌ Hata: {e}")
+        print(f"Telegram Gönderim Hatası: {e}")
 
-def poisson_prob(lmbda, k):
-    return (math.pow(lmbda, k) * math.exp(-lmbda)) / math.factorial(k)
-
-def calculate_match_probabilities(home_xg, away_xg):
-    home_xg_ht = home_xg * 0.42
-    away_xg_ht = away_xg * 0.42
-    prob_iy_05 = (1 - poisson_prob(home_xg_ht + away_xg_ht, 0)) * 100
-
+def calculate_poisson_goals(home_xg, away_xg):
     max_goals = 6
-    prob_home = [poisson_prob(home_xg, h) for h in range(max_goals)]
-    prob_away = [poisson_prob(away_xg, a) for a in range(max_goals)]
-    ms_15_alt = sum(prob_home[h] * prob_away[a] for h in range(max_goals) for a in range(max_goals) if h + a < 2)
-    prob_ms_15 = (1 - ms_15_alt) * 100
+    def poisson(lmbda, k):
+        return (math.pow(lmbda, k) * math.exp(-lmbda)) / math.factorial(k)
 
-    return round(prob_iy_05, 1), round(prob_ms_15, 1)
+    prob_matrix = [[poisson(home_xg, h) * poisson(away_xg, a) for a in range(max_goals)] for h in range(max_goals)]
 
-def estimate_xg_from_fixture(home_team, away_team):
-    seed = zlib.adler32(f"{home_team}{away_team}".encode('utf-8'))
-    home_xg = 1.2 + (seed % 120) / 100.0
-    away_xg = 0.9 + ((seed >> 2) % 110) / 100.0
-    return home_xg, away_xg
+    p_over25 = sum(prob_matrix[h][a] for h in range(max_goals) for a in range(max_goals) if (h + a) > 2.5)
+    p_over35 = sum(prob_matrix[h][a] for h in range(max_goals) for a in range(max_goals) if (h + a) > 3.5)
+    p_btts = sum(prob_matrix[h][a] for h in range(1, max_goals) for a in range(1, max_goals))
 
-def run_daily_analysis():
-    today = datetime.now().strftime("%Y-%m-%d")
-    url = f"https://v3.football.api-sports.io/fixtures?date={today}"
-    req = urllib.request.Request(url, headers={"x-apisports-key": API_KEY, "User-Agent": "Mozilla/5.0"})
-    
-    try:
-        with urllib.request.urlopen(req, timeout=15) as response:
-            res_data = json.loads(response.read().decode('utf-8'))
-            fixtures = res_data.get("response", [])
+    return round(p_over25 * 100, 1), round(p_over35 * 100, 1), round(p_btts * 100, 1)
+
+def run_live_signal_check():
+    # Örnek İddaa Maç Akışı
+    sample_matches = [
+        {
+            "league": {"id": 203, "name": "Trendyol Süper Lig"},
+            "teams": {"home": {"name": "Galatasaray"}, "away": {"name": "Kasımpaşa"}},
+            "home_xg": 2.2, "away_xg": 1.4,
+            "odds_drop": 14.5
+        },
+        {
+            "league": {"id": 140, "name": "La Liga"},
+            "teams": {"home": {"name": "Villarreal"}, "away": {"name": "Girona"}},
+            "home_xg": 1.9, "away_xg": 1.6,
+            "odds_drop": 8.0
+        }
+    ]
+
+    for match in sample_matches:
+        league_id = match.get("league", {}).get("id")
         
-        top_matches = []
-        for item in fixtures:
-            home_team = item["teams"]["home"]["name"]
-            away_team = item["teams"]["away"]["name"]
-            league_name = item["league"]["name"]
+        # 1. İddaa Dışı Lig Filtresi
+        if league_id not in IDDAA_LIGLERI:
+            continue
 
-            home_xg, away_xg = estimate_xg_from_fixture(home_team, away_team)
-            iy_05_prob, ms_15_prob = calculate_match_probabilities(home_xg, away_xg)
+        home_team = match["teams"]["home"]["name"]
+        away_team = match["teams"]["away"]["name"]
+        p_over25, p_over35, p_btts = calculate_poisson_goals(match["home_xg"], match["away_xg"])
+        odds_drop = match.get("odds_drop", 0)
 
-            if iy_05_prob >= MIN_IY_05_PROB or ms_15_prob >= MIN_MS_15_PROB:
-                top_matches.append(
-                    f"⚽ <b>{home_team} vs {away_team}</b> ({league_name})\n"
-                    f"   IY 0.5: %{iy_05_prob} | MS 1.5: %{ms_15_prob}"
-                )
+        # 2. Sinyal Kriteri: 2.5 Üst %68+, KG VAR %65+ VEYA %10+ Oran Düşüşü
+        if p_over25 >= 68.0 or p_btts >= 65.0 or odds_drop >= 10.0:
+            signals = []
+            if p_over25 >= 68.0:
+                signals.append(f"⚽ <b>2.5 ÜST:</b> %{p_over25}")
+            if p_over35 >= 42.0:
+                signals.append(f"🔥 <b>3.5 ÜST SÜRPRİZ:</b> %{p_over35}")
+            if p_btts >= 65.0:
+                signals.append(f"🤝 <b>KG VAR:</b> %{p_btts}")
+            if odds_drop >= 10.0:
+                signals.append(f"📉 <b>ANLIK ORAN DÜŞÜŞÜ:</b> -%{odds_drop}")
 
-        if top_matches:
-            summary_list = "\n\n".join(top_matches[:10])
-            title = f"🔥 {today} - Günün Yüksek İhtimalli Maçları"
-            send_telegram(title, summary_list)
-    except Exception as e:
-        print(f"❌ Bağlantı hatası: {e}")
+            msg = (
+                f"🚨 <b>İDDAA ANLIK GOL & ORAN SİNYALİ</b> 🚨\n\n"
+                f"⚔️ <b>{home_team} vs {away_team}</b>\n"
+                f"🏆 <b>Lig:</b> {match['league']['name']}\n\n"
+                f"🎯 <b>Öne Çıkan Değerler:</b>\n" + "\n".join(signals) + "\n\n"
+                f"📲 <i>Bilyoner/İddaa bülteninden hemen oynanabilir.</i>"
+            )
+            send_telegram(msg)
 
 if __name__ == "__main__":
-    run_daily_analysis()
+    run_live_signal_check()
