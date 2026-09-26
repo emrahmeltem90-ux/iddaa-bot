@@ -4,6 +4,7 @@ import datetime
 import json
 import time
 import urllib.request
+import urllib.error
 
 # Secret ve API Yapılandırması
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN", "")
@@ -25,12 +26,21 @@ IDDAA_LEAGUES = [
 
 def http_get(url, headers=None):
     req = urllib.request.Request(url, headers=headers or {})
-    try:
-        with urllib.request.urlopen(req, timeout=15) as response:
-            if response.status == 200:
-                return json.loads(response.read().decode('utf-8'))
-    except Exception as e:
-        print(f"HTTP İstek Hatası: {e}")
+    for attempt in range(3):
+        try:
+            with urllib.request.urlopen(req, timeout=15) as response:
+                if response.status == 200:
+                    return json.loads(response.read().decode('utf-8'))
+        except urllib.error.HTTPError as e:
+            if e.code == 429:
+                print("⚠️ Dakikalık API limiti aşıldı (429). 60 saniye bekleniyor...")
+                time.sleep(60)
+            else:
+                print(f"HTTP İstek Hatası: {e}")
+                break
+        except Exception as e:
+            print(f"HTTP İstek Hatası: {e}")
+            break
     return None
 
 def send_telegram(message):
@@ -72,7 +82,7 @@ def main():
     today = datetime.datetime.now().strftime("%Y-%m-%d")
     headers = {'x-apisports-key': API_KEY}
     
-    # İstek 1: Günlük Maç Bülteni
+    # 1. İstek: Günlük Maç Bülteni
     url = f"https://v3.football.api-sports.io/fixtures?date={today}"
     data = http_get(url, headers)
     
@@ -93,7 +103,8 @@ def main():
         away_team = item.get("teams", {}).get("away", {}).get("name", "Deplasman")
         league_name = item.get("league", {}).get("name", "Lig")
         
-        time.sleep(2)
+        # Dakikalık limit koruması (Dakikada maks 10 istek -> 6.5s bekleme)
+        time.sleep(6.5)
         
         pred_url = f"https://v3.football.api-sports.io/predictions?fixture={fixture_id}"
         pred_data = http_get(pred_url, headers)
@@ -123,7 +134,6 @@ def main():
         send_telegram("ℹ️ Bugün taranacak uygun İddaa maçı bulunamadı.")
         return
 
-    # En yüksek 2.5 Üst oranına göre sırala
     analyzed_matches.sort(key=lambda x: x["over25"], reverse=True)
 
     # 1. Genel Bülten Özet Mesajı
