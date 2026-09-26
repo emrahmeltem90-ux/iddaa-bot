@@ -2,8 +2,8 @@ name: Anlik Iddaa Gol ve Oran Sinyali
 
 on:
   schedule:
-    # Her 15 dakikada bir otomatik calis
-    - cron: '*/15 * * * *'
+    # Türkiye Saati ile 10:00 ve 18:00'de otomatik çalışır (UTC 07:00 ve 15:00)
+    - cron: '0 7,15 * * *'
   workflow_dispatch:
 
 jobs:
