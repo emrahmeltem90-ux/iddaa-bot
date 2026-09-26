@@ -4,9 +4,8 @@ import datetime
 import json
 import time
 import urllib.request
-import urllib.parse
 
-# Configuration & Secrets
+# Secret ve API Yapılandırması
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN", "")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
 API_KEY = "4b7109b6760cf29b78701c45406dbd9a"
@@ -73,6 +72,7 @@ def main():
     today = datetime.datetime.now().strftime("%Y-%m-%d")
     headers = {'x-apisports-key': API_KEY}
     
+    # İstek 1: Günlük Maç Bülteni
     url = f"https://v3.football.api-sports.io/fixtures?date={today}"
     data = http_get(url, headers)
     
@@ -86,8 +86,8 @@ def main():
     
     analyzed_matches = []
     
-    # Kota koruması için her çalıştırmada en fazla 25 maç analiz edilir
-    for item in target_fixtures[:25]:
+    # Kota Koruması: Her çalıştırmada en fazla 45 maç analiz edilir
+    for item in target_fixtures[:45]:
         fixture_id = item.get("fixture", {}).get("id")
         home_team = item.get("teams", {}).get("home", {}).get("name", "Ev")
         away_team = item.get("teams", {}).get("away", {}).get("name", "Deplasman")
@@ -126,27 +126,27 @@ def main():
     # En yüksek 2.5 Üst oranına göre sırala
     analyzed_matches.sort(key=lambda x: x["over25"], reverse=True)
 
-    # 1. BOTUN ÇALIŞTIĞINI KANITLAYAN GENEL ÖZET MESAJI
+    # 1. Genel Bülten Özet Mesajı
     summary_msg = f"📊 <b>İDDAA BÜLTEN TARAMA ÖZETİ</b>\n\n"
     summary_msg += f"🔍 Taranan Maç Sayısı: {len(analyzed_matches)}\n\n"
-    summary_msg += f"🔥 <b>Günün En Yüksek Gol Beklentili 3 Maçı:</b>\n\n"
+    summary_msg += f"🔥 <b>En Yüksek Gol Potansiyelli Maçlar:</b>\n\n"
     
-    for idx, match in enumerate(analyzed_matches[:3], 1):
+    for idx, match in enumerate(analyzed_matches[:5], 1):
         summary_msg += f"{idx}. <b>{match['home']} - {match['away']}</b>\n"
         summary_msg += f"   🏆 {match['league']}\n"
         summary_msg += f"   ⚽ 2.5 Üst: %{match['over25']:.1f} | 🤝 KG Var: %{match['btts']:.1f}\n\n"
 
     send_telegram(summary_msg)
 
-    # 2. %50 EŞİĞİNİ GEÇENLER İÇİN DETAYLI BİLDİRİM
+    # 2. Fırsat Sinyalleri (%50 Üstü)
     for match in analyzed_matches:
         if match["over25"] >= 50 or match["btts"] >= 50:
             msg = f"🚨 <b>GOL FIRSAT SİNYALİ</b>\n\n"
             msg += f"⚔️ <b>{match['home']} vs {match['away']}</b>\n"
             msg += f"🏆 <b>Lig:</b> {match['league']}\n\n"
-            msg += f"🟢 <b>2.5 Üst İhtimali:</b> %{match['over25']:.1f}\n"
-            msg += f"🤝 <b>KG Var İhtimali:</b> %{match['btts']:.1f}\n"
-            msg += f"🔥 <b>3.5 Üst İhtimali:</b> %{match['over35']:.1f}\n"
+            msg += f"🟢 <b>2.5 Üst:</b> %{match['over25']:.1f}\n"
+            msg += f"🤝 <b>KG Var:</b> %{match['btts']:.1f}\n"
+            msg += f"🔥 <b>3.5 Üst:</b> %{match['over35']:.1f}\n"
             send_telegram(msg)
 
 if __name__ == "__main__":
