@@ -2,7 +2,7 @@ name: Anlik Iddaa Gol ve Oran Sinyali
 
 on:
   schedule:
-    # Her 15 dakikada bir otomatik çalışır
+    # Her 15 dakikada bir otomatik calis
     - cron: '*/15 * * * *'
   workflow_dispatch:
 
@@ -11,15 +11,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Repoyu Kopyala
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Python Kur
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: '3.10'
 
       - name: Botu Calistir
         env:
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
-          CHAT_ID: ${{ secrets.CHAT_ID }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: python analiz.py
