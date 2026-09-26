@@ -11,8 +11,19 @@ TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN", "")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
 API_KEY = "4b7109b6760cf29b78701c45406dbd9a"
 
-# Genişletilmiş Lig & Turnuva Listesi
-TARGET_LEAGUES = [5, 10, 32, 203, 204, 39, 140, 135, 78, 61, 88, 94, 2, 3, 848]
+# İddaa Bülteninde Yer Alan Ana Ligler ve Turnuvalar
+IDDAA_LEAGUES = [
+    203, 204, 636, 637,  # Türkiye (Süper Lig, 1.Lig, 2.Lig, 3.Lig)
+    39, 40, 41, 42,      # İngiltere (Premier, Champ, League 1, League 2)
+    140, 141,            # İspanya (La Liga, La Liga 2)
+    135, 136,            # İtalya (Serie A, Serie B)
+    78, 79,              # Almanya (Bundesliga, 2. Bundesliga)
+    61, 62,              # Fransa (Ligue 1, Ligue 2)
+    88, 89,              # Hollanda (Eredivisie, Eerste Divisie)
+    94,                  # Portekiz
+    253,                 # ABD (MLS)
+    2, 3, 848, 5, 10, 32 # Şampiyonlar Ligi, Avrupa Ligi, Konferans, Uluslar Ligi, Euro/Kupa
+]
 
 def http_get(url, headers=None):
     req = urllib.request.Request(url, headers=headers or {})
@@ -73,19 +84,24 @@ def main():
         return
 
     fixtures = data.get("response", [])
-    target_fixtures = [f for f in fixtures if f.get("league", {}).get("id") in TARGET_LEAGUES]
     
-    print(f"Bugün hedef liglerde toplam {len(target_fixtures)} maç bulundu.")
+    # İddaa bültenindeki liglere göre filtrele
+    iddaa_fixtures = [f for f in fixtures if f.get("league", {}).get("id") in IDDAA_LEAGUES]
+    
+    # İddaa liglerinde az maç varsa o günün genel bülteninden seç
+    target_fixtures = iddaa_fixtures if len(iddaa_fixtures) > 0 else fixtures
+    
+    print(f"Bugün taranacak İddaa maç sayısı: {len(target_fixtures)}")
     signals_sent = 0
     
-    for item in target_fixtures:
+    # Günlük kota sınırı için maksimum 80 maç sorgula
+    for item in target_fixtures[:80]:
         fixture_id = item.get("fixture", {}).get("id")
         home_team = item.get("teams", {}).get("home", {}).get("name", "Ev")
         away_team = item.get("teams", {}).get("away", {}).get("name", "Deplasman")
         league_name = item.get("league", {}).get("name", "Lig")
         
-        # API 429 isteğini engellemek için her sorgu öncesi 2 saniye bekle
-        time.sleep(2)
+        time.sleep(2) # 429 Engeli önleme
         
         pred_url = f"https://v3.football.api-sports.io/predictions?fixture={fixture_id}"
         pred_data = http_get(pred_url, headers)
@@ -102,23 +118,23 @@ def main():
             
             over25, over35, btts = calculate_poisson_probs(home_exp, away_exp)
             
-            if over35 > 40 or (btts > 60 and over25 > 65):
-                msg = f"🚨 <b>CANLI İDDAA GOL SİNYALİ</b>\n\n"
+            # İddaa Gol İhtimali Filtreleri
+            if over25 >= 58 or btts >= 58 or over35 >= 35:
+                msg = f"⚽ <b>İDDAA GOL FIRSAT MAÇI</b>\n\n"
                 msg += f"⚔️ <b>{home_team} vs {away_team}</b>\n"
-                msg += f"🏆 <b>Turnuva/Lig:</b> {league_name}\n\n"
-                msg += f"🎯 <b>Poisson Analiz Değerleri:</b>\n"
-                if over35 > 40:
-                    msg += f"🔥 <b>3.5 ÜST SÜRPRİZ:</b> %{over35:.1f}\n"
-                if btts > 60:
+                msg += f"🏆 <b>Lig:</b> {league_name}\n\n"
+                msg += f"📊 <b>Poisson Tahminleri:</b>\n"
+                if over25 >= 58:
+                    msg += f"🟢 <b>2.5 ÜST:</b> %{over25:.1f}\n"
+                if btts >= 58:
                     msg += f"🤝 <b>KG VAR:</b> %{btts:.1f}\n"
-                if over25 > 65:
-                    msg += f"⚽ <b>2.5 ÜST:</b> %{over25:.1f}\n"
-                msg += f"\n📱 <i>İddaa bülteninden takip edilebilir.</i>"
+                if over35 >= 35:
+                    msg += f"🔥 <b>3.5 ÜST:</b> %{over35:.1f}\n"
                 
                 send_telegram(msg)
                 signals_sent += 1
 
-    print(f"Bugünün bülten analizi tamamlandı. Gönderilen Sinyal: {signals_sent}")
+    print(f"Tarama bitti. Gönderilen Sinyal: {signals_sent}")
 
 if __name__ == "__main__":
     main()
