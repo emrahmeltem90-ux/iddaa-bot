@@ -7,8 +7,8 @@ import urllib.request
 import urllib.error
 
 # ============================================================
-# SKORLAB TELEGRAM BOT · v2
-# Bol Gollü Maç Sinyali · Bülten Ligleri · Günlük 09:00 TR
+# SKORLAB TELEGRAM BOT · v3
+# Bol Gollü Maç Sinyali · Bug Fix (xG=0 sorunu çözüldü)
 # ============================================================
 
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN", "")
@@ -20,58 +20,35 @@ API_KEY = "4b7109b6760cf29b78701c45406dbd9a"
 # ============================================================
 UST_LIGLER = [
     # === TÜRKİYE ===
-    203,   # Türkiye Süper Lig        (~2.85 gol/maç)
-    204,   # Türkiye 1. Lig            (~2.70 gol/maç)
-
+    203, 204,
     # === İNGİLTERE ===
-    39,    # Premier Lig               (~2.90 gol/maç)
-    40,    # Championship              (~2.60 gol/maç)
-
+    39, 40,
     # === İSPANYA ===
-    140,   # La Liga                   (~2.60 gol/maç)
-    141,   # La Liga 2                 (~2.40 gol/maç)
-
+    140, 141,
     # === İTALYA ===
-    135,   # Serie A                   (~2.80 gol/maç)
-    136,   # Serie B                   (~2.60 gol/maç)
-
+    135, 136,
     # === ALMANYA (ÇOK GOLLÜ) ===
-    78,    # Bundesliga                (~3.20 gol/maç) 🔥
-    79,    # 2. Bundesliga             (~3.10 gol/maç) 🔥
-
+    78, 79,
     # === FRANSA ===
-    61,    # Ligue 1                   (~2.80 gol/maç)
-    62,    # Ligue 2                   (~2.50 gol/maç)
-
+    61, 62,
     # === HOLLANDA (EN GOLLÜ) ===
-    88,    # Eredivisie                (~3.30 gol/maç) 🔥🔥
-    89,    # Eerste Divisie            (~3.20 gol/maç) 🔥
-
+    88, 89,
     # === PORTEKİZ ===
-    94,    # Primeira Liga             (~2.70 gol/maç)
-
+    94,
     # === BELÇİKA (GOLLÜ) ===
-    144,   # Pro League                (~3.00 gol/maç) 🔥
-
+    144,
     # === AVUSTURYA (ÇOK GOLLÜ) ===
-    218,   # Bundesliga                (~3.15 gol/maç) 🔥
-
+    218,
     # === İSVİÇRE (ÇOK GOLLÜ) ===
-    207,   # Süper Lig                 (~3.20 gol/maç) 🔥
-
+    207,
     # === İSKANDİNAV (GOLLÜ) ===
-    103,   # Norveç Eliteserien        (~3.10 gol/maç) 🔥
-    113,   # İsveç Allsvenskan         (~3.00 gol/maç) 🔥
-    119,   # Danimarka Süper Lig       (~2.95 gol/maç)
-
+    103, 113, 119,
     # === AVRUPA KUPALARI ===
-    2,     # Şampiyonlar Ligi          (~2.90 gol/maç)
-    3,     # Avrupa Ligi               (~2.90 gol/maç)
-    848,   # Konferans Ligi            (~2.80 gol/maç)
+    2, 3, 848,
 ]
 
 # ============================================================
-# LİG İSİMLERİ (mesajda göstermek için)
+# LİG İSİMLERİ
 # ============================================================
 LIG_ISIMLERI = {
     203: "Türkiye Süper Lig",
@@ -103,9 +80,9 @@ LIG_ISIMLERI = {
 # ============================================================
 # AYARLAR
 # ============================================================
-MAX_MAC = 30          # Günlük max analiz (kota koruması)
-API_BEKLEME = 6.5     # Her maç arası bekleme (dakikalık limit)
-GOLLU_ESIK = 60       # 2.5Ü veya KGV bu yüzdenin üstündeyse "gollü"
+MAX_MAC = 30
+API_BEKLEME = 6.5
+GOLLU_ESIK = 60
 
 
 # ============================================================
@@ -150,6 +127,23 @@ def send_telegram(message):
         urllib.request.urlopen(req, timeout=10)
     except Exception as e:
         print(f"Telegram Hatası: {e}")
+
+
+# ============================================================
+# SAFE FLOAT (BUG FIX)
+# ============================================================
+def safe_float(val, default):
+    """'0', 0, None, '' gibi değerlerde default döner."""
+    if val is None:
+        return default
+    try:
+        f = float(val)
+        # 0 veya 0'a yakın değerler → default
+        if f <= 0.1:
+            return default
+        return f
+    except (ValueError, TypeError):
+        return default
 
 
 # ============================================================
@@ -201,7 +195,6 @@ def main():
     filtrelenmis = [f for f in fixtures if f.get("league", {}).get("id") in UST_LIGLER]
     print(f"🎯 Bülten ligi maçı: {len(filtrelenmis)}")
 
-    # Hiç maç yoksa boş mesaj at
     if not filtrelenmis:
         send_telegram(
             f"ℹ️ Bugün bülten liglerinde maç yok.\n"
@@ -211,6 +204,8 @@ def main():
 
     # 3) Her maçı analiz et
     analyzed = []
+    debug_info = []  # DEBUG: kaç maç xG aldı
+
     for item in filtrelenmis[:MAX_MAC]:
         fixture_id = item.get("fixture", {}).get("id")
         home = item.get("teams", {}).get("home", {}).get("name", "Ev")
@@ -227,34 +222,42 @@ def main():
         except:
             match_time = "?"
 
-        # Predictions API (dakikalık limit koruması)
+        # Predictions API
         time.sleep(API_BEKLEME)
         pred_url = f"https://v3.football.api-sports.io/predictions?fixture={fixture_id}"
         pred_data = http_get(pred_url, headers)
 
+        # Debug: predictions geldi mi?
         if pred_data and pred_data.get("response"):
             pred_item = pred_data["response"][0]
             goals_exp = pred_item.get("predictions", {}).get("goals", {})
+            raw_home = goals_exp.get("home")
+            raw_away = goals_exp.get("away")
+            print(f"  [{home} - {away}] xG RAW: {raw_home} / {raw_away}")
 
-            try:
-                home_exp = float(goals_exp.get("home") or 1.3)
-                away_exp = float(goals_exp.get("away") or 1.1)
-            except (ValueError, TypeError):
-                home_exp, away_exp = 1.3, 1.1
+            # SAFE FLOAT ile parse et
+            home_exp = safe_float(raw_home, 1.3)
+            away_exp = safe_float(raw_away, 1.1)
+            print(f"  → Kullanılan xG: {home_exp} / {away_exp}")
 
-            over25, over35, btts = poisson_probs(home_exp, away_exp)
+        else:
+            # Predictions yoksa default xG kullan
+            home_exp, away_exp = 1.3, 1.1
+            print(f"  [{home} - {away}] Predictions yok, default xG kullanıldı")
 
-            analyzed.append({
-                "home": home,
-                "away": away,
-                "league": league_name,
-                "time": match_time,
-                "over25": over25,
-                "over35": over35,
-                "btts": btts,
-                "xg_ev": home_exp,
-                "xg_dep": away_exp
-            })
+        over25, over35, btts = poisson_probs(home_exp, away_exp)
+
+        analyzed.append({
+            "home": home,
+            "away": away,
+            "league": league_name,
+            "time": match_time,
+            "over25": over25,
+            "over35": over35,
+            "btts": btts,
+            "xg_ev": home_exp,
+            "xg_dep": away_exp
+        })
 
     if not analyzed:
         send_telegram("ℹ️ Bugün analiz edilecek uygun maç bulunamadı.")
@@ -285,7 +288,6 @@ def main():
     ozet += "🔥 <b>GOL POTANSİYELİ YÜKSEK MAÇLAR:</b>\n\n"
 
     for idx, m in enumerate(gollu_maclar[:10], 1):
-        # Emoji belirleme
         if m["over25"] >= 75:
             emoji = "🔥🔥🔥"
         elif m["over25"] >= 68:
